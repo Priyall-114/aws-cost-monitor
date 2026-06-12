@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AWS Cost Monitor</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:Arial,sans-serif;background:#0f1117;color:#e2e8f0;padding:2rem}
+.header{padding-bottom:1rem;border-bottom:1px solid #2d3748;margin-bottom:1.5rem}
+.header-title{font-size:22px;font-weight:500;color:#f7fafc}
+.header-sub{font-size:13px;color:#a0aec0;margin-top:4px}
+.gauge-section{display:grid;grid-template-columns:1fr 1fr;gap:1.5rem;align-items:center;margin-bottom:2rem}
+.gauge-wrap{display:flex;flex-direction:column;align-items:center}
+.stats-grid{display:grid;grid-template-rows:1fr 1fr 1fr;gap:12px}
+.stat-card{background:#1a202c;border-radius:8px;padding:0.9rem 1rem;border:1px solid #2d3748}
+.stat-label{font-size:12px;color:#a0aec0;margin-bottom:4px}
+.stat-value{font-size:22px;font-weight:500;color:#f7fafc}
+.stat-value.danger{color:#fc8181}
+.stat-value.warning{color:#f6ad55}
+.stat-value.safe{color:#68d391}
+.section-title{font-size:15px;font-weight:500;color:#f7fafc;margin-bottom:1rem}
+.service-row{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid #2d3748}
+.service-row:last-child{border-bottom:none}
+.service-name{font-size:14px;color:#e2e8f0;flex:1}
+.service-bar-wrap{flex:2;height:6px;background:#2d3748;border-radius:3px;overflow:hidden}
+.service-bar{height:100%;border-radius:3px;background:#378ADD}
+.service-cost{font-size:13px;color:#a0aec0;min-width:60px;text-align:right}
+.resources-section{margin-top:2rem}
+.resource-group{border:1px solid #2d3748;border-radius:8px;margin-bottom:8px;overflow:hidden}
+.resource-header{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;cursor:pointer;background:#1a202c}
+.resource-header:hover{background:#2d3748}
+.resource-header-left{display:flex;align-items:center;gap:10px}
+.resource-type{font-size:14px;font-weight:500;color:#e2e8f0}
+.resource-count{font-size:12px;background:#2b4a7a;color:#90cdf4;padding:2px 8px;border-radius:8px}
+.resource-list{padding:0 16px 12px;display:none;background:#1a202c}
+.resource-list.open{display:block}
+.resource-item{font-size:13px;color:#a0aec0;padding:6px 0;border-bottom:1px solid #2d3748}
+.resource-item:last-child{border-bottom:none}
+.history-link{display:inline-flex;align-items:center;gap:6px;font-size:14px;color:#63b3ed;text-decoration:none;margin-top:1.5rem;padding:8px 0}
+.history-link:hover{text-decoration:underline}
+.last-updated{font-size:12px;color:#718096;margin-top:1.5rem}
+.chevron{transition:transform 0.2s;font-size:16px;color:#a0aec0}
+.open-chevron{transform:rotate(180deg)}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-title">AWS Cost Monitor</div>
+  <div class="header-sub" id="header-date">Loading...</div>
+</div>
+
+<div class="gauge-section">
+  <div class="gauge-wrap">
+    <svg overflow="visible" width="220" height="130" viewBox="0 0 220 130">
+      <path d="M 20 120 A 90 90 0 0 1 200 120" fill="none" stroke="#2d3748" stroke-width="14" stroke-linecap="round"/>
+      <path id="gauge-arc" d="M 20 120 A 90 90 0 0 1 200 120" fill="none" stroke="#378ADD" stroke-width="14" stroke-linecap="round" stroke-dasharray="283" stroke-dashoffset="283"/>
+      <text x="110" y="100" text-anchor="middle" font-size="26" font-weight="500" fill="#f7fafc" id="gauge-pct">0%</text>
+      <text x="110" y="118" text-anchor="middle" font-size="11" fill="#a0aec0">of budget used</text>
+      <text x="20" y="130" text-anchor="middle" font-size="10" fill="#a0aec0">$0</text>
+      <text x="200" y="130" text-anchor="middle" font-size="10" fill="#a0aec0" id="gauge-max">$5</text>
+    </svg>
+  </div>
+  <div class="stats-grid">
+    <div class="stat-card">
+      <div class="stat-label">Amount spent</div>
+      <div class="stat-value" id="stat-actual">—</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Total budget</div>
+      <div class="stat-value" id="stat-limit">—</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Remaining</div>
+      <div class="stat-value" id="stat-remaining">—</div>
+    </div>
+  </div>
+</div>
+
+<div class="section-title">Service Breakdown of the Month</div>
+<div id="service-list"><div style="font-size:13px;color:#a0aec0">Loading services...</div></div>
+
+<a class="history-link" href="history.html">
+  <i class="ti ti-chart-bar"></i>
+  View past data &amp; comparisons
+</a>
+
+<div class="resources-section">
+  <div class="section-title">Active resources</div>
+  <div id="resources-list"><div style="font-size:13px;color:#a0aec0">Loading resources...</div></div>
+</div>
+
+<div class="last-updated" id="last-updated"></div>
+
+<script>
+const BUCKET_URL = 'https://cost-monitor-dashboard-priyal.s3.ap-south-1.amazonaws.com';
+
+async function loadData() {
+  try {
+    const res = await fetch(BUCKET_URL + '/dashboard_data.json');
+    const d = await res.json();
+    renderDashboard(d);
+  } catch(e) {
+    document.getElementById('header-date').textContent = 'Could not load data. Check S3 bucket and CORS settings.';
+  }
+}
+
+function renderDashboard(d) {
+  const actual = d.actual_spend || 0;
+  const limit = d.limit || 5;
+  const remaining = d.budget_remaining || (limit - actual);
+  const pct = Math.min(actual / limit, 1);
+
+  document.getElementById('header-date').textContent = 'Since 1 ' + new Date(d.date).toLocaleString('default', {month:'long', year:'numeric'}) + ' · updated ' + d.date;
+  document.getElementById('last-updated').textContent = 'Last updated: ' + d.date;
+
+  const arc = document.getElementById('gauge-arc');
+  const offset = 283 - (pct * 283);
+  arc.setAttribute('stroke-dashoffset', offset.toFixed(1));
+  arc.setAttribute('stroke', pct >= 1 ? '#fc8181' : pct >= 0.8 ? '#f6ad55' : '#378ADD');
+
+  document.getElementById('gauge-pct').textContent = Math.round(pct * 100) + '%';
+  document.getElementById('gauge-max').textContent = '$' + limit.toFixed(2);
+
+  const sa = document.getElementById('stat-actual');
+  sa.textContent = '$' + actual.toFixed(2);
+  sa.className = 'stat-value ' + (pct >= 1 ? 'danger' : pct >= 0.8 ? 'warning' : '');
+
+  document.getElementById('stat-limit').textContent = '$' + limit.toFixed(2);
+
+  const sr = document.getElementById('stat-remaining');
+  sr.textContent = '$' + remaining.toFixed(2);
+  sr.className = 'stat-value ' + (remaining <= 0 ? 'danger' : remaining < limit * 0.2 ? 'warning' : 'safe');
+
+  const services = d.service_breakdown || {};
+  const entries = Object.entries(services).filter(([,v]) => parseFloat(v) > 0).sort((a,b) => parseFloat(b[1]) - parseFloat(a[1]));
+  const maxCost = entries.length ? parseFloat(entries[0][1]) : 1;
+  const sl = document.getElementById('service-list');
+  sl.innerHTML = entries.length ? entries.map(([name, cost]) => {
+    const c = parseFloat(cost);
+    return `<div class="service-row">
+      <span class="service-name">${name}</span>
+      <div class="service-bar-wrap"><div class="service-bar" style="width:${(c/maxCost*100).toFixed(1)}%"></div></div>
+      <span class="service-cost">$${c.toFixed(4)}</span>
+    </div>`;
+  }).join('') : '<div style="font-size:13px;color:#a0aec0">No service usage this month.</div>';
+
+  const resources = d.active_resources || {};
+  const rl = document.getElementById('resources-list');
+  const keys = Object.keys(resources);
+  rl.innerHTML = keys.length ? keys.map((type, i) => {
+    const r = resources[type];
+    const shortType = type.split(':').slice(1).join(' › ');
+    return `<div class="resource-group">
+      <div class="resource-header" onclick="toggleResource(${i})">
+        <div class="resource-header-left">
+          <span class="resource-type">${shortType}</span>
+          <span class="resource-count">${r.count}</span>
+        </div>
+        <i class="ti ti-chevron-down chevron" id="chev-${i}"></i>
+      </div>
+      <div class="resource-list" id="res-${i}">
+        ${(r.resources||[]).map(n => `<div class="resource-item">${n}</div>`).join('') || '<div class="resource-item">No details available</div>'}
+      </div>
+    </div>`;
+  }).join('') : '<div style="font-size:13px;color:#a0aec0">No active resources found.</div>';
+}
+
+function toggleResource(i) {
+  document.getElementById('res-' + i).classList.toggle('open');
+  document.getElementById('chev-' + i).classList.toggle('open-chevron');
+}
+
+loadData();
+</script>
+</body>
+</html>
